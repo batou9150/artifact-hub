@@ -1,0 +1,84 @@
+# Security model
+
+## Rendering untrusted content
+
+Artifacts are arbitrary HTML with JavaScript. They are rendered so that the script runs
+but can neither reach the application nor send data anywhere.
+
+**Response headers on every `/a/*` response (success and refusal):**
+
+| Header | Value | Purpose |
+|---|---|---|
+| `Content-Security-Policy` | `default-src 'none'; script-src 'unsafe-inline' 'unsafe-eval' blob:; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; media-src data: blob:; connect-src 'none'; form-action 'none'; frame-ancestors <APP_ORIGIN>; base-uri 'none'; child-src blob:; worker-src blob:; sandbox allow-scripts` | deny by default, no egress, framing pinned to the app, opaque origin even on direct load |
+| `X-Content-Type-Options` | `nosniff` | no MIME sniffing |
+| `Cross-Origin-Opener-Policy` | `same-origin` | no window handle to or from other origins |
+| `Cross-Origin-Resource-Policy` | `same-origin` | cannot be embedded as a resource elsewhere |
+| `X-DNS-Prefetch-Control` | `off` | closes the speculative DNS side channel |
+| `Referrer-Policy` | `no-referrer` | the URL carries a render ticket |
+| `Cache-Control` | `private, no-store` | no shared caching of private content |
+
+**Iframe:** `sandbox="allow-scripts"` only (`ArtifactFrame.tsx`, unit-tested).
+`allow-same-origin` is never set: combined with `allow-scripts` it lets the frame remove
+its own sandbox. No `allow-popups`, `allow-forms`, `allow-top-navigation`.
+
+**Markdown and text** are converted server-side. Everything is HTML-escaped first; links
+keep an `href` only for `http(s):` and `mailto:`; images keep their alt text only.
+
+**Publish-time linter:** HTML that loads scripts, styles, images or data from the network
+gets a warning (it would render broken, since the sandbox blocks egress).
+
+### Residual risks
+
+* **Frame self-navigation.** No browser enforces a CSP directive for a frame navigating
+  itself, so script in an HTML artifact can set `location` to an external URL and leak
+  data in the query string. `fetch`, XHR, WebSocket, beacons, forms, images, scripts,
+  styles and popups are blocked. Mitigations in place: the viewer detects a second `load`
+  of the frame and warns the user; artifacts are private by default and org-wide sharing is
+  restricted to a publisher group. Treat "no data can leave" as "no data can leave without
+  navigating the frame away", and keep the author accountable (attribution is verified).
+* **The body embeds data.** Sharing an artifact shares whatever data its author could see.
+  Hence private by default, per-person grants, org-wide sharing restricted to the publisher
+  group, the `sensitive` flag (org-wide sharing refused, and flagging a published artifact
+  withdraws its org link), and admin deletion.
+* **Opaque origin relies on the browser.** A browser bug in CSP `sandbox` enforcement
+  would expose the app origin. Serving `/a/*` from a dedicated host removes that exposure
+  (see architecture.md).
+
+## Authentication
+
+* **Web app:** OIDC authorization code + PKCE (`oidc-client-ts`), tokens in
+  `sessionStorage` of the app origin (unreachable from the opaque-origin frame).
+* **API and MCP:** bearer tokens validated locally: signature against the IdP JWKS
+  (discovered, cached, rotated), exact `iss`, `aud` in the configured audiences, `exp` /
+  `nbf`, allowed algorithms (RS/ES/PS; `none` rejected), explicit `email_verified: false`
+  rejected, optional email domain allow-list.
+* **Sandbox:** short-lived HMAC render tickets bound to (artifact, email, version, expiry),
+  plus a fresh access check on every request. A bearer header is also accepted (for tools).
+* **Dev auth mode:** fake `dev:<email>` tokens, for local runs and tests only. Refused
+  when `ENVIRONMENT=prod`; OIDC mode refuses the default ticket secret; the UI shows a
+  permanent banner.
+
+## Authorization matrix
+
+| Action | Owner | Invited (`shared_with`) | Organisation (`visibility=shared`) | Admin group | Anyone else |
+|---|---|---|---|---|---|
+| Open current version / body | yes | yes | yes | only if also granted | 404 |
+| Open a prior version | yes | 404 | 404 | 404 | 404 |
+| Edit, rename, metadata, revert, versions list | yes | 403 | 403 | as its other grants | 404 |
+| Share with people / make private | yes | 403 | 403 | as its other grants | 404 |
+| Share with the whole organisation | publisher group only, never if `sensitive` (default policy) | 403 | 403 | yes (admin implies publisher) | 404 |
+| Delete | yes | 403 | 403 | yes | 404 |
+| Appear in search results | yes | yes | yes | only if also granted | never |
+
+404 is used whenever the caller cannot open the artifact, so a private artifact is
+indistinguishable from an absent one; 403 only where existence is already known to the
+caller. Search pre-filters by `can_open` and re-checks every hit, and never returns
+bodies or vectors. Owner-only fields (`shared_with`, `viewers`, counts) are stripped for
+everyone else.
+
+## Data at rest
+
+* Firestore is only reachable by the service account (client rules are deny-all).
+* The render-ticket key lives in Secret Manager; no secret is committed.
+* The runtime service account has `roles/datastore.user` (and `roles/aiplatform.user` for
+  Vertex embeddings), nothing else.
