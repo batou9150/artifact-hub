@@ -62,6 +62,10 @@ class ArtifactTooLarge(ArtifactError):
     """Body over MAX_BODY_BYTES (HTTP 413)."""
 
 
+class ArtifactConflict(ArtifactError):
+    """Concurrent writers exhausted the transaction retries (HTTP 409, safe to retry)."""
+
+
 class ArtifactNotFound(KeyError):
     """Absent artifact or version (HTTP 404)."""
 

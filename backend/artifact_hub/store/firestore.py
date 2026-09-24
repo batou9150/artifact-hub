@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from google.cloud import firestore
 
-from .base import ArtifactNotFound, ArtifactStore
+from .base import ArtifactConflict, ArtifactNotFound, ArtifactStore
 
 ARTIFACTS = "artifacts"
 VERSIONS = "versions"
@@ -56,7 +56,12 @@ class FirestoreArtifactStore(ArtifactStore):
                             {"n": n, "body": body, "size": size, "author": author, "created_at": ts})
             transaction.update(ref, {"current_version": n, "size": size, "updated_at": ts})
 
-        txn(self.db.transaction())
+        try:
+            txn(self.db.transaction(max_attempts=10))
+        except ArtifactNotFound:
+            raise
+        except ValueError as exc:  # "Failed to commit transaction in N attempts"
+            raise ArtifactConflict("the artifact is being updated concurrently; retry") from exc
 
     def _patch(self, doc_id, fields):
         ref = self._ref(doc_id)

@@ -1,5 +1,5 @@
 from .base import (  # noqa: F401
-    MAX_BODY_BYTES, MAX_SHARED_WITH, ArtifactError, ArtifactNotFound, ArtifactStore,
+    MAX_BODY_BYTES, MAX_SHARED_WITH, ArtifactConflict, ArtifactError, ArtifactNotFound, ArtifactStore,
     ArtifactTooLarge,
 )
 from .memory import MemoryArtifactStore  # noqa: F401

@@ -31,7 +31,7 @@ from .search.embeddings import build_embedder
 from .search.service import SearchService
 from .service import ArtifactService, NotFound
 from .store import MAX_BODY_BYTES, MAX_SHARED_WITH, build_store
-from .store.base import ArtifactError, ArtifactTooLarge
+from .store.base import ArtifactConflict, ArtifactError, ArtifactTooLarge
 
 log = logging.getLogger("artifact_hub")
 
@@ -134,6 +134,10 @@ def create_app(settings: Settings | None = None, *, store=None, embedder=None,
     @app.exception_handler(ArtifactTooLarge)
     async def _tl(_r, e):
         return JSONResponse({"detail": str(e)}, status_code=413)
+
+    @app.exception_handler(ArtifactConflict)
+    async def _cf(_r, e):
+        return JSONResponse({"detail": str(e)}, status_code=409)
 
     @app.exception_handler(ArtifactError)
     async def _ae(_r, e):
