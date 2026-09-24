@@ -1,0 +1,29 @@
+[project]
+name = "artifact-hub"
+version = "0.1.0"
+description = "Share self-contained HTML/Markdown/text artifacts with sandboxed rendering, versioning, search and an MCP endpoint."
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi==0.141.1",
+  "uvicorn==0.53.0",
+  "pydantic==2.13.5",
+  "pyjwt[crypto]==2.15.0",
+  "httpx==0.28.1",
+  "google-cloud-firestore==2.31.0",
+  "mcp==2.2.0",
+]
+
+[project.optional-dependencies]
+vertex = ["google-genai"]
+dev = ["pytest==9.1.1"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["artifact_hub*"]
