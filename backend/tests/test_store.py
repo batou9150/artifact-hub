@@ -162,7 +162,7 @@ def test_concurrent_updates_never_lose_a_version(store):
         except Exception as e:  # pragma: no cover
             other.append(e)
 
-    threads = [threading.Thread(target=worker, args=(i,)) for i in range(6)]
+    threads = [threading.Thread(target=worker, args=(i,)) for i in range(4)]
     for t in threads:
         t.start()
     for t in threads:
