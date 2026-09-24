@@ -1,0 +1,103 @@
+# Written, never run from this repository yet. Required repository configuration
+# (Settings > Secrets and variables > Actions > Variables), all outputs of
+# infra/terraform:
+#   GCP_PROJECT_ID, GCP_REGION, GCP_WIF_PROVIDER, GCP_DEPLOYER_SA,
+#   CLOUD_RUN_SERVICE_DEV, CLOUD_RUN_SERVICE_PROD
+# Keyless: GitHub OIDC -> Workload Identity Federation, no service account key.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: google-github-actions/setup-gcloud@v2
+        with:
+          install_components: cloud-firestore-emulator
+      - name: Install
+        run: pip install -e ".[dev]"
+      - name: Tests (in-memory + Firestore emulator)
+        run: |
+          gcloud emulators firestore start --host-port=127.0.0.1:8681 > /tmp/emulator.log 2>&1 &
+          for i in $(seq 1 60); do curl -s 127.0.0.1:8681 >/dev/null && break; sleep 1; done
+          FIRESTORE_EMULATOR_HOST=127.0.0.1:8681 python -m pytest -q
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+
+  terraform:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/terraform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - run: terraform fmt -check -recursive
+      - run: terraform init -backend=false -input=false
+      - run: terraform validate
+
+  deploy:
+    # dev on every merge to main, prod on a v* tag.
+    if: github.event_name == 'push'
+    needs: [backend, frontend, terraform]
+    runs-on: ubuntu-latest
+    environment: ${{ startsWith(github.ref, 'refs/tags/v') && 'prod' || 'dev' }}
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      REGION: ${{ vars.GCP_REGION }}
+      IMAGE: ${{ vars.GCP_REGION }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/artifact-hub/hub:${{ github.sha }}
+      SERVICE: ${{ startsWith(github.ref, 'refs/tags/v') && vars.CLOUD_RUN_SERVICE_PROD || vars.CLOUD_RUN_SERVICE_DEV }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SA }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Build and push
+        run: |
+          gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
+      - name: Deploy (image only; configuration is owned by Terraform)
+        run: gcloud run deploy "$SERVICE" --image "$IMAGE" --region "$REGION" --quiet
+      - name: Smoke
+        run: |
+          URL=$(gcloud run services describe "$SERVICE" --region "$REGION" --format='value(status.url)')
+          curl -fsS "$URL/healthz"
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$URL/mcp")" = "401"

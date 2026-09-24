@@ -13,6 +13,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
+import sys
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
@@ -294,6 +295,18 @@ def create_app(settings: Settings | None = None, *, store=None, embedder=None,
     return app, root
 
 
-def create_root_app():
+def _configure_logging() -> None:
     logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
+    # Events go to stdout as bare JSON lines, which Cloud Logging stores as
+    # jsonPayload (a log sink routes jsonPayload.event=artifact_* to BigQuery).
+    events = logging.getLogger("artifact_hub.events")
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    events.handlers = [handler]
+    events.propagate = False
+    events.setLevel(logging.INFO)
+
+
+def create_root_app():
+    _configure_logging()
     return create_app()[1]

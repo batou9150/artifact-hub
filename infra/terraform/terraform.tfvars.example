@@ -1,0 +1,11 @@
+project_id        = "my-project-dev"
+environment       = "dev"
+image             = "europe-west1-docker.pkg.dev/my-project-dev/artifact-hub/hub:0.1.0"
+public_base_url   = "https://artifacts.example.com"
+oidc_issuer       = "https://login.microsoftonline.com/<tenant-id>/v2.0"
+oidc_audiences    = ["api://artifact-hub"]
+oidc_client_id    = "<spa-client-id>"
+oidc_scopes       = "openid profile email api://artifact-hub/access"
+publisher_group   = "<publisher-group-object-id>"
+admin_group       = "<admin-group-object-id>"
+github_repository = "my-org/artifact-hub"
