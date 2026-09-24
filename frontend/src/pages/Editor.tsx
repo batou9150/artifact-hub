@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom'
 import { AppBar } from '../components/AppBar'
 import { Icon } from '../components/Icons'
 import type { Artifact, Kind } from '../lib/api'
@@ -22,6 +22,7 @@ export function Editor() {
   const api = useApi()
   const { state } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
   const cap = state.phase === 'signedIn' ? state.config.max_body_bytes : 800_000
 
   const [original, setOriginal] = useState<{ art: Artifact; body: string } | null>(null)
@@ -34,7 +35,13 @@ export function Editor() {
   const [sensitive, setSensitive] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [warnings, setWarnings] = useState<string[]>([])
+  // Warnings from a create that just happened carry over after the redirect to /edit.
+  const [warnings, setWarnings] = useState<string[]>((location.state as { warnings?: string[] } | null)?.warnings ?? [])
+
+  useEffect(() => {
+    const carried = (location.state as { warnings?: string[] } | null)?.warnings
+    if (carried?.length) setWarnings(carried)
+  }, [location.state])
 
   useEffect(() => {
     if (!id) return
@@ -55,6 +62,7 @@ export function Editor() {
 
   const save = async () => {
     setBusy(true); setError(null); setWarnings([])
+    window.history.replaceState({}, '')
     try {
       let art: Artifact
       if (!editing) {
@@ -70,7 +78,12 @@ export function Editor() {
         if (sensitive !== o.art.sensitive) patch.sensitive = sensitive
         art = Object.keys(patch).length ? await api.update(id!, patch) : o.art
       }
-      if (art.warnings?.length) { setWarnings(art.warnings); setOriginal({ art, body }); return }
+      if (art.warnings?.length) {
+        // Created or saved, but it will render broken: stay in the editor (as an edit,
+        // so a second click cannot create a duplicate) and show why.
+        if (!editing) { navigate(`/artifacts/${art.id}/edit`, { replace: true, state: { warnings: art.warnings } }); return }
+        setWarnings(art.warnings); setOriginal({ art, body }); return
+      }
       navigate(`/artifacts/${art.id}`)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Save failed.')
@@ -123,7 +136,7 @@ export function Editor() {
               Contains sensitive data (cannot be shared with the whole organisation)
             </label>
           </details>
-          {warnings.map((w) => <p key={w} className="warning">{w} <Link to={`/artifacts/${original?.art.id}`}>Open it anyway</Link></p>)}
+          {warnings.map((w) => <p key={w} className="warning">{w} <Link to={`/artifacts/${id ?? original?.art.id}`}>Open it anyway</Link></p>)}
           {error && <p className="error">{error}</p>}
           <div className="form-actions">
             <button type="submit" className="btn primary" disabled={busy || over || !title.trim() || !body}>
