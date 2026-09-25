@@ -3,7 +3,8 @@
   /api/*          REST API for the web app (bearer token: OIDC, or dev identities)
   /a/{id}         sandbox content endpoint (render ticket), isolating CSP headers
   /mcp            MCP endpoint (streamable HTTP), plus its RFC 9728 metadata
-  /healthz        liveness
+  /healthz        liveness (container probes; Cloud Run's front end reserves it)
+  /api/health     the same, reachable from outside
   /*              the built SPA, when STATIC_DIR is set
 
 Run locally:  uvicorn artifact_hub.api:create_root_app --factory --port 8080
@@ -169,6 +170,7 @@ def create_app(settings: Settings | None = None, *, store=None, embedder=None,
 
     # ── public ──────────────────────────────────────────────────────────────
     @app.get("/healthz", include_in_schema=False)
+    @app.get("/api/health", include_in_schema=False)
     def healthz():
         return {"ok": True}
 

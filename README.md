@@ -108,7 +108,7 @@ make test-emulator       # backend against the Firestore emulator as well
 2. **frontend**: `npm test` and a production build.
 3. **terraform**: `fmt -check` and `validate` (no backend, nothing applied).
 4. **deploy (template)**: builds the image, deploys it to Cloud Run (dev on `main`, prod
-   on a `v*` tag) and smoke-tests `/healthz` and `/mcp`. It is **skipped** until the
+   on a `v*` tag) and smoke-tests `/api/health` and `/mcp`. It is **skipped** until the
    repository variables listed at the top of the workflow are set (outputs of
    `infra/terraform`), so a fork stays green until it is wired to its own project.
 

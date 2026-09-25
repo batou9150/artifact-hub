@@ -137,3 +137,9 @@ def test_app_responses_are_not_frameable(client):
     r = client.get("/api/config")
     assert r.headers["content-security-policy"] == "frame-ancestors 'none'"
     assert r.headers["x-content-type-options"] == "nosniff"
+
+
+def test_health_routes(client):
+    # /healthz for container probes; /api/health from outside (Cloud Run reserves /healthz).
+    assert client.get("/healthz").json() == {"ok": True}
+    assert client.get("/api/health").json() == {"ok": True}

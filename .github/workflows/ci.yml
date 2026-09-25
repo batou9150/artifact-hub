@@ -104,5 +104,5 @@ jobs:
       - name: Smoke
         run: |
           URL=$(gcloud run services describe "$SERVICE" --region "$REGION" --format='value(status.url)')
-          curl -fsS "$URL/healthz"
+          curl -fsS "$URL/api/health"  # /healthz is reserved by the Cloud Run front end
           test "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$URL/mcp")" = "401"
