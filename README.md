@@ -116,3 +116,7 @@ make test-emulator       # backend against the Firestore emulator as well
   (Entra ID, Okta, Google).
 * [docs/open-points.md](docs/open-points.md): MCP client registration (DCR / CIMD), IAP vs
   OIDC, large bodies on Cloud Storage, and the rest of the backlog.
+
+## License
+
+[MIT](LICENSE)

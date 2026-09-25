@@ -3,6 +3,7 @@ name = "artifact-hub"
 version = "0.1.0"
 description = "Share self-contained HTML/Markdown/text artifacts with sandboxed rendering, versioning, search and an MCP endpoint."
 requires-python = ">=3.12"
+license = "MIT"
 dependencies = [
   "fastapi==0.141.1",
   "uvicorn==0.53.0",
