@@ -1,4 +1,4 @@
-# Applied to par-poc-genai-dev (dev). Values live in terraform.tfvars (not committed).
+# Values live in terraform.tfvars (not committed; see terraform.tfvars.example).
 terraform {
   required_version = ">= 1.6"
   required_providers {
