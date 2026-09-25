@@ -29,8 +29,29 @@ export type Artifact = {
   shared_with?: string[]      // owner only
   viewers_count?: number      // owner only
   view_count?: number         // owner only
+  moderation?: Moderation     // owner only: last administrator action
   warnings?: string[]
 }
+
+export type Moderation = { by: string; action: string; note: string; at: string }
+
+export type AdminArtifact = Pick<Artifact, 'id' | 'owner' | 'owner_name' | 'title' | 'kind' | 'visibility' |
+  'current_version' | 'size' | 'description' | 'tags' | 'sensitive' | 'created_at' | 'updated_at' | 'created_via' |
+  'url'> & { view_count?: number; shared_with_count: number; moderation?: Moderation }
+
+export type AdminStats = {
+  artifacts: number
+  bytes: number
+  owners: number
+  sensitive: number
+  by_visibility: Record<string, number>
+  by_kind: Record<string, number>
+  by_via: Record<string, number>
+  top_owners: { email: string; artifacts: number }[]
+}
+
+export type AdminFilters = { q?: string; owner?: string; visibility?: '' | Visibility; sensitive?: '' | 'true' | 'false' }
+export type ModerationInput = { withdraw_org?: boolean; clear_invites?: boolean; sensitive?: boolean; note?: string }
 
 export type Version = { n: number; size: number; author: string; created_at: string }
 export type SearchHit = Pick<Artifact, 'id' | 'title' | 'kind' | 'owner' | 'owner_name' | 'description' |
@@ -90,6 +111,18 @@ export function createApi(getToken: TokenSource) {
       call<{ artifact: Artifact }>(`/api/artifacts/${id}/revert`, { method: 'POST', body: json({ version }) }).then((r) => r.artifact),
     remove: (id: string) => call<{ ok: boolean }>(`/api/artifacts/${id}`, { method: 'DELETE' }),
     recordView: (id: string) => call<{ ok: boolean }>(`/api/artifacts/${id}/views`, { method: 'POST' }).catch(() => null),
+    admin: {
+      stats: () => call<AdminStats>('/api/admin/stats'),
+      artifacts: (f: AdminFilters = {}) => {
+        const qs = new URLSearchParams(Object.entries(f).filter(([, v]) => v) as [string, string][]).toString()
+        return call<{ artifacts: AdminArtifact[]; total: number }>(`/api/admin/artifacts${qs ? `?${qs}` : ''}`)
+      },
+      moderate: (id: string, input: ModerationInput) =>
+        call<{ artifact: AdminArtifact }>(`/api/admin/artifacts/${id}/moderate`, { method: 'POST', body: json(input) })
+          .then((r) => r.artifact),
+      remove: (id: string, note = '') =>
+        call<{ ok: boolean }>(`/api/admin/artifacts/${id}?note=${encodeURIComponent(note)}`, { method: 'DELETE' }),
+    },
     people: (q: string) => call<{ people: Person[] }>(`/api/people?q=${encodeURIComponent(q)}`).then((r) => r.people),
   }
 }

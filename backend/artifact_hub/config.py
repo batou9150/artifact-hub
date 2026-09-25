@@ -70,7 +70,11 @@ class Settings:
 
     # Authorization policy.
     publisher_group: str = "artifact-publishers"  # may share org-wide
-    admin_group: str = "artifact-admins"          # may delete any artifact
+    admin_group: str = "artifact-admins"          # may moderate any artifact
+    # Administrators named by email, for IdPs whose tokens carry no groups (Google).
+    # Same rights as the admin group; read on every request, so removing an address
+    # takes effect immediately, including for MCP tokens already issued.
+    admin_emails: tuple[str, ...] = ()
     allowed_email_domains: tuple[str, ...] = ()   # empty = any verified identity
     # "deny": an artifact flagged sensitive can never be shared org-wide.
     # "allow": the flag is informational only.
@@ -133,6 +137,7 @@ class Settings:
             oauth_refresh_token_ttl=int(env("OAUTH_REFRESH_TOKEN_TTL", str(30 * 24 * 3600))),
             publisher_group=env("PUBLISHER_GROUP", "artifact-publishers"),
             admin_group=env("ADMIN_GROUP", "artifact-admins"),
+            admin_emails=tuple(e.lower() for e in _csv(env("ADMIN_EMAILS", ""))),
             allowed_email_domains=tuple(d.lower().lstrip("@") for d in _csv(env("ALLOWED_EMAIL_DOMAINS", ""))),
             sensitive_org_share=env("SENSITIVE_ORG_SHARE", "deny"),
             store_backend=env("STORE_BACKEND", "memory"),
@@ -172,5 +177,8 @@ class Settings:
                 raise ValueError("OAUTH_SERVER requires OAUTH_SIGNING_KEY")
             if self.environment not in {"local", "test"} and not self.public_base_url.startswith("https://"):
                 raise ValueError("OAUTH_SERVER requires an https PUBLIC_BASE_URL")
+        bad = [e for e in self.admin_emails if "@" not in e]
+        if bad:
+            raise ValueError(f"ADMIN_EMAILS must hold email addresses, got {', '.join(bad)}")
         if self.sensitive_org_share not in {"deny", "allow"}:
             raise ValueError("SENSITIVE_ORG_SHARE must be 'deny' or 'allow'")

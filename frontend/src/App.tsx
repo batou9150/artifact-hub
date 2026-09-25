@@ -1,5 +1,6 @@
 import { Navigate, Route, Routes } from 'react-router-dom'
 import { useAuth } from './lib/auth'
+import { Admin } from './pages/Admin'
 import { Callback } from './pages/Callback'
 import { Editor } from './pages/Editor'
 import { Gallery } from './pages/Gallery'
@@ -23,6 +24,7 @@ export function App() {
           <Route path="/new" element={<Editor />} />
           <Route path="/artifacts/:id" element={<Viewer />} />
           <Route path="/artifacts/:id/edit" element={<Editor />} />
+          {state.me.is_admin && <Route path="/admin" element={<Admin />} />}
           <Route path="*" element={<Navigate to="/" replace />} />
         </>
       )}

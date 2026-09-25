@@ -6,7 +6,10 @@ search all call these functions, so the rules cannot diverge between surfaces.
            visibility == 'shared' (organisation-wide, by link)
   version  a prior version is owner-only; grantees only ever see the current one
   manage   edit / rename / share / revert: owner only
-  delete   owner, or a member of the admin group (moderation backstop)
+  delete   owner, or an administrator (moderation backstop)
+  admin    administrators (ADMIN_GROUP or ADMIN_EMAILS) list every artifact's
+           metadata, withdraw sharing, flag sensitive and delete; they read a body
+           only when they could open the artifact anyway
   org-wide publishing (visibility 'shared') requires the publisher group, and is
            refused for an artifact flagged sensitive when SENSITIVE_ORG_SHARE=deny
 """
@@ -48,6 +51,11 @@ def can_manage(p: Principal | None, art: dict | None) -> bool:
 
 def can_delete(p: Principal | None, art: dict | None) -> bool:
     return is_owner(p, art) or bool(p and p.is_admin and art is not None)
+
+
+def require_admin(p: Principal) -> None:
+    if not p.is_admin:
+        raise Forbidden("administrators only")
 
 
 def check_org_share(settings, p: Principal, art: dict | None) -> None:

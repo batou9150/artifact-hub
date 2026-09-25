@@ -262,6 +262,31 @@ input, select, textarea, button { font: inherit; color: inherit; }
 .people-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; max-height: 220px; overflow: auto; }
 .people-list li { display: flex; align-items: center; gap: 10px; }
 
+/* ── administration ────────────────────────────────────────────────────── */
+.page.wide { max-width: 1180px; }
+.stats { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); margin: 16px 0 20px; }
+.stat { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+.stat-value { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.stat-label { font-weight: 600; font-size: 0.85rem; }
+.stat-hint { color: var(--muted); font-size: 0.76rem; }
+.admin-filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.admin-filters .search { flex: 1; min-width: 220px; margin: 0; }
+.admin-filters select { padding: 6px 10px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--surface); color: var(--text); }
+.table-wrap { overflow-x: auto; }
+.admin-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); }
+.admin-table th { text-align: left; font-size: 0.78rem; color: var(--muted); font-weight: 600; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+.admin-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.admin-table tr:last-child td { border-bottom: 0; }
+.admin-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.admin-title { font-weight: 600; }
+.admin-mod { display: block; margin-top: 2px; }
+.admin-owner { display: flex; flex-direction: column; overflow-wrap: anywhere; }
+.admin-badges { display: flex; flex-wrap: wrap; gap: 2px; }
+.admin-badges .tag { display: inline-flex; align-items: center; gap: 3px; }
+.tag.sensitive { background: var(--warning-bg); color: var(--warning-text); }
+.admin-actions { white-space: nowrap; text-align: right; }
+.btn.primary.danger-fill { background: var(--danger); border-color: var(--danger); color: #fff; }
+
 @media (max-width: 640px) {
   .appbar { padding: 10px 16px; }
   .appbar-id { display: none; }

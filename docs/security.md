@@ -88,7 +88,7 @@ Enabled with `OAUTH_SERVER=true` (`artifact_hub/oauth`).
 
 ## Authorization matrix
 
-| Action | Owner | Invited (`shared_with`) | Organisation (`visibility=shared`) | Admin group | Anyone else |
+| Action | Owner | Invited (`shared_with`) | Organisation (`visibility=shared`) | Administrator | Anyone else |
 |---|---|---|---|---|---|
 | Open current version / body | yes | yes | yes | only if also granted | 404 |
 | Open a prior version | yes | 404 | 404 | 404 | 404 |
@@ -96,6 +96,8 @@ Enabled with `OAUTH_SERVER=true` (`artifact_hub/oauth`).
 | Share with people / make private | yes | 403 | 403 | as its other grants | 404 |
 | Share with the whole organisation | publisher group only, never if `sensitive` (default policy) | 403 | 403 | yes (admin implies publisher) | 404 |
 | Delete | yes | 403 | 403 | yes | 404 |
+| List every artifact's metadata, totals (`/api/admin/*`) | 403 | 403 | 403 | yes | 403 |
+| Withdraw org-wide sharing, remove invitees, flag / unflag sensitive | as above | 403 | 403 | yes, recorded on the artifact | 403 |
 | Appear in search results | yes | yes | yes | only if also granted | never |
 
 404 is used whenever the caller cannot open the artifact, so a private artifact is
@@ -103,6 +105,14 @@ indistinguishable from an absent one; 403 only where existence is already known 
 caller. Search pre-filters by `can_open` and re-checks every hit, and never returns
 bodies or vectors. Owner-only fields (`shared_with`, `viewers`, counts) are stripped for
 everyone else.
+
+Administrators are the `ADMIN_GROUP` members plus the `ADMIN_EMAILS` addresses. The admin
+console lists metadata only (title, owner, kind, size, sharing summary, view count): never a
+body, the invite list or who viewed it, so a private artifact stays private from
+administrators too; they open it like anyone else, only when it is shared with them.
+Moderation never changes a body. The last action (who, what, when, note) is stored on the
+artifact and shown to its owner, and every action and admin deletion is logged as an
+`artifact_moderated` / `artifact_deleted` event with `by_admin`.
 
 ## Data at rest
 

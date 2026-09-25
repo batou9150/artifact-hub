@@ -25,3 +25,16 @@ export function formatBytes(n: number): string {
 }
 
 export const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+const MODERATION_LABELS: Record<string, string> = {
+  withdrew_org_share: 'withdrew organisation-wide sharing',
+  cleared_invites: 'removed every invited person',
+  flagged_sensitive: 'flagged it sensitive',
+  unflagged_sensitive: 'removed the sensitive flag',
+}
+
+/** "withdrew_org_share,cleared_invites" -> "withdrew organisation-wide sharing and removed every invited person" */
+export function describeModeration(action: string): string {
+  const parts = action.split(',').filter(Boolean).map((a) => MODERATION_LABELS[a] ?? a.replace(/_/g, ' '))
+  return parts.length > 1 ? `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}` : parts[0] ?? ''
+}

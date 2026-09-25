@@ -67,7 +67,12 @@ variable "publisher_group" {
 }
 variable "admin_group" {
   type        = string
-  description = "Group allowed to delete any artifact."
+  description = "Group of administrators (admin console, moderation, deletion of any artifact)."
+}
+variable "admin_emails" {
+  type        = list(string)
+  default     = []
+  description = "Administrators by email, for IdPs whose tokens carry no groups claim (Google)."
 }
 variable "allowed_email_domains" {
   type    = list(string)

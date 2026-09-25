@@ -8,4 +8,5 @@ oidc_client_id    = "<spa-client-id>"
 oidc_scopes       = "openid profile email api://artifact-hub/access"
 publisher_group   = "<publisher-group-object-id>"
 admin_group       = "<admin-group-object-id>"
+# admin_emails    = ["ops@example.com"]   # when tokens carry no groups (Google)
 github_repository = "my-org/artifact-hub"

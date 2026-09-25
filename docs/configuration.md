@@ -26,7 +26,8 @@ All settings are environment variables read once at startup (`backend/artifact_h
 | `OAUTH_ALLOWED_CLIENT_HOSTS` | | Comma list of hosts allowed to serve client metadata documents. Empty = any public host. |
 | `OAUTH_ACCESS_TOKEN_TTL` / `OAUTH_REFRESH_TOKEN_TTL` | `3600` / `2592000` | Seconds. |
 | `PUBLISHER_GROUP` | `artifact-publishers` | May share with the whole organisation. |
-| `ADMIN_GROUP` | `artifact-admins` | May delete any artifact (implies publisher). |
+| `ADMIN_GROUP` | `artifact-admins` | Administrators: the admin console, moderation and deletion of any artifact (implies publisher). |
+| `ADMIN_EMAILS` | | Comma list of administrator emails, same rights as `ADMIN_GROUP`. For IdPs whose tokens carry no groups (Google). Checked on every request, so removing an address takes effect at once, MCP tokens included. |
 | `ALLOWED_EMAIL_DOMAINS` | | Comma list; restricts sign-in and invitees. Empty = any identity the IdP vouches for. |
 | `SENSITIVE_ORG_SHARE` | `deny` | `deny`: a sensitive artifact can never be shared org-wide. `allow`: flag is informational. |
 | `STORE_BACKEND` | `memory` | `memory` or `firestore` (emulator via `FIRESTORE_EMULATOR_HOST`). |

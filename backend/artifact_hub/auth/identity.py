@@ -13,7 +13,7 @@ class Principal:
     subject: str = ""               # IdP `sub`, kept for audit logs
     groups: frozenset[str] = field(default_factory=frozenset)
     is_publisher: bool = False      # member of the configured publisher group
-    is_admin: bool = False          # member of the configured admin group
+    is_admin: bool = False          # in the admin group, or listed in ADMIN_EMAILS
     via: str = "oidc"               # oidc | dev
 
     def public(self) -> dict:
@@ -38,12 +38,13 @@ def build_principal(settings, *, email: str, name: str = "", subject: str = "",
         if domain not in settings.allowed_email_domains:
             return None
     groups = frozenset(str(g) for g in (groups or []))
+    is_admin = settings.admin_group in groups or email in settings.admin_emails
     return Principal(
         email=email,
         name=name or "",
         subject=subject or "",
         groups=groups,
-        is_publisher=settings.publisher_group in groups or settings.admin_group in groups,
-        is_admin=settings.admin_group in groups,
+        is_publisher=is_admin or settings.publisher_group in groups,
+        is_admin=is_admin,
         via=via,
     )

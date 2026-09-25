@@ -22,6 +22,7 @@ export function AppBar({ children }: { children?: React.ReactNode }) {
         <div className="appbar-center">{children}</div>
         {state.phase === 'signedIn' && (
           <div className="appbar-user">
+            {state.me.is_admin && <Link to="/admin" className="btn ghost small">Admin</Link>}
             <span className="avatar" title={state.me.email}>{(state.me.name || state.me.email)[0].toUpperCase()}</span>
             <span className="appbar-id">
               <span className="appbar-name">{state.me.name || state.me.email}</span>

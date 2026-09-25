@@ -8,7 +8,7 @@ import { ShareDialog } from '../components/ShareDialog'
 import { VersionsPanel } from '../components/VersionsPanel'
 import type { Artifact } from '../lib/api'
 import { useAuth } from '../lib/auth'
-import { timeAgo } from '../lib/format'
+import { describeModeration, timeAgo } from '../lib/format'
 import { useApi } from '../lib/useApi'
 
 type Load = { phase: 'loading' } | { phase: 'unavailable' } | { phase: 'ready'; artifact: Artifact; src: string }
@@ -114,6 +114,12 @@ export function Viewer() {
           </div>
         </header>
         {error && <p className="error banner">{error}</p>}
+        {a.moderation && (
+          <p className="warning banner" role="status">
+            An administrator ({a.moderation.by}) {describeModeration(a.moderation.action)} {timeAgo(a.moderation.at)}
+            {a.moderation.note && <>: “{a.moderation.note}”</>}
+          </p>
+        )}
         {navigatedAway && (
           <p className="warning banner">This artifact navigated its frame away from its own content. What you see below is no longer the published artifact.
             <button type="button" className="btn ghost small" onClick={() => { setNavigatedAway(false); refresh() }}>Reload artifact</button></p>

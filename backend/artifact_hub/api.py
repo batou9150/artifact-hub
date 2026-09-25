@@ -78,6 +78,13 @@ class RevertRequest(BaseModel):
     version: int
 
 
+class ModerationRequest(BaseModel):
+    withdraw_org: bool = False     # organisation-wide link back to private
+    clear_invites: bool = False    # drop every per-person grant
+    sensitive: bool | None = None  # flag (withdraws the org link under SENSITIVE_ORG_SHARE=deny) or unflag
+    note: str = ""                 # shown to the owner
+
+
 # ── app factory ─────────────────────────────────────────────────────────────
 
 def create_app(settings: Settings | None = None, *, store=None, embedder=None,
@@ -263,6 +270,28 @@ def create_app(settings: Settings | None = None, *, store=None, embedder=None,
     @app.post("/api/artifacts/{artifact_id}/views", tags=["artifacts"])
     def record_view(artifact_id: str, p: Principal = Depends(principal)):
         return service.record_view(p, artifact_id)
+
+    # ── administration ──────────────────────────────────────────────────────
+    @app.get("/api/admin/stats", tags=["admin"])
+    def admin_stats(p: Principal = Depends(principal)):
+        return service.admin_stats(p)
+
+    @app.get("/api/admin/artifacts", tags=["admin"])
+    def admin_artifacts(q: str = "", owner: str = "", visibility: str = "", sensitive: bool | None = None,
+                        limit: int = 200, p: Principal = Depends(principal)):
+        return service.admin_list(p, q=q, owner=owner, visibility=visibility, sensitive=sensitive, limit=limit)
+
+    @app.post("/api/admin/artifacts/{artifact_id}/moderate", tags=["admin"])
+    def admin_moderate(artifact_id: str, req: ModerationRequest, p: Principal = Depends(principal)):
+        return {"artifact": service.admin_moderate(p, artifact_id, withdraw_org=req.withdraw_org,
+                                                   clear_invites=req.clear_invites, sensitive=req.sensitive,
+                                                   note=req.note)}
+
+    @app.delete("/api/admin/artifacts/{artifact_id}", tags=["admin"])
+    def admin_delete(artifact_id: str, note: str = "", p: Principal = Depends(principal)):
+        access.require_admin(p)
+        service.delete(p, artifact_id, note=note)
+        return {"ok": True, "id": artifact_id}
 
     # ── sandbox content endpoint ────────────────────────────────────────────
     headers = sandbox.security_headers(settings.app_origin)

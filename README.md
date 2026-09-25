@@ -5,10 +5,14 @@ with specific people or the whole organisation, find similar ones, and open them
 browser inside a locked-down sandbox. Artifacts can be published from the web app or by an
 AI agent through the MCP endpoint, always attributed to the verified human behind it.
 
+![Artifact Hub gallery: my artifacts, shared with me, and semantic search](docs/screenshot-gallery.png)
+
 * **Web app** (React + Vite + TypeScript): my artifacts, shared with me, create / edit (new
   version) / rename (no version) / delete, version history with preview and restore, share
   dialog (private, specific people up to 100, whole organisation for the publisher group),
-  semantic search, and a viewer that renders the artifact in `<iframe sandbox="allow-scripts">`.
+  semantic search, a viewer that renders the artifact in `<iframe sandbox="allow-scripts">`,
+  and an admin console (totals, every artifact's metadata, withdraw sharing, flag
+  sensitive, delete; administrators by group or by email).
 * **Backend** (Python, FastAPI, Firestore): single-writer store with versioning and an
   800 KB body cap, REST API, sandbox content endpoint with a no-egress CSP, MCP endpoint
   (official `mcp` SDK, streamable HTTP), pluggable embeddings and vector search filtered by
@@ -65,7 +69,8 @@ make seed
 
 The API starts in **DEV AUTH MODE** by default: it accepts `Authorization: Bearer
 dev:<email>` and the web app shows a login picker with fake identities (Alice is in the
-publisher group, Carol in the admin group). A yellow banner is always displayed, and the
+publisher group, Carol in the admin group; add `ADMIN_EMAILS` / `DEV_USERS` to try an
+administrator by email). A yellow banner is always displayed, and the
 backend refuses to start in dev mode when `ENVIRONMENT=prod`.
 
 Production-like single-origin run (SPA served by the API, as in the container):

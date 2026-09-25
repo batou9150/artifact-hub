@@ -259,6 +259,10 @@ resource "google_cloud_run_v2_service" "hub" {
         value = var.admin_group
       }
       env {
+        name  = "ADMIN_EMAILS"
+        value = join(",", var.admin_emails)
+      }
+      env {
         name  = "ALLOWED_EMAIL_DOMAINS"
         value = join(",", var.allowed_email_domains)
       }

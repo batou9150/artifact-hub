@@ -50,7 +50,7 @@ _EMAIL = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 SERVER_FIELDS = {
     "id", "owner", "owner_name", "current_version", "size", "viewers", "view_count",
     "last_viewed_at", "embedding", "embedding_model", "search_hash", "created_at",
-    "updated_at", "created_via",
+    "updated_at", "created_via", "moderation",
 }
 
 
@@ -322,6 +322,14 @@ class ArtifactStore(ABC):
         viewer = (viewer or "").lower()
         if viewer and viewer != art["owner"]:
             self._add_viewer(doc_id, viewer, now())
+        return self.get_artifact(doc_id)
+
+    def record_moderation(self, doc_id: str, *, by: str, action: str, note: str = "") -> dict:
+        """Keep the last administrator action on the artifact, shown to its owner.
+        Not an edit: updated_at is left alone."""
+        self._require(doc_id)
+        self._patch(doc_id, {"moderation": {"by": by.lower(), "action": action, "note": note[:MAX_DESCRIPTION],
+                                            "at": now()}})
         return self.get_artifact(doc_id)
 
     def delete_artifact(self, doc_id: str) -> None:

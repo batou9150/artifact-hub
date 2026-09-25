@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections import Counter
 from datetime import datetime
 
 from . import access, sandbox
@@ -21,7 +22,11 @@ from .store.base import ArtifactError, ArtifactNotFound, ArtifactStore
 log = logging.getLogger("artifact_hub.events")
 
 HIDDEN_FIELDS = {"embedding", "embedding_model", "search_hash"}
-OWNER_ONLY_FIELDS = {"viewers", "view_count", "last_viewed_at", "shared_with"}
+OWNER_ONLY_FIELDS = {"viewers", "view_count", "last_viewed_at", "shared_with", "moderation"}
+# What an administrator sees of any artifact: enough to moderate, not who read it.
+ADMIN_FIELDS = ("id", "owner", "owner_name", "title", "kind", "visibility", "current_version", "size",
+                "description", "tags", "sensitive", "created_at", "updated_at", "created_via",
+                "view_count", "moderation")
 
 
 class NotFound(LookupError):
@@ -29,6 +34,8 @@ class NotFound(LookupError):
 
 
 def _iso(v):
+    if isinstance(v, dict):
+        return {k: _iso(x) for k, x in v.items()}
     return v.isoformat() if isinstance(v, datetime) else v
 
 
@@ -141,7 +148,7 @@ class ArtifactService:
         self._event("artifact_reverted", p, doc_id, to=n, version=art["current_version"])
         return self.view(p, art)
 
-    def delete(self, p: Principal, doc_id: str) -> None:
+    def delete(self, p: Principal, doc_id: str, *, note: str = "") -> None:
         art = self.store.get_artifact(doc_id)
         if art is None:
             raise NotFound(doc_id)
@@ -151,7 +158,9 @@ class ArtifactService:
                 raise Forbidden("only the owner or an administrator can delete this artifact")
             raise NotFound(doc_id)
         self.store.delete_artifact(doc_id)
-        self._event("artifact_deleted", p, doc_id, by_admin=not access.is_owner(p, art))
+        by_admin = not access.is_owner(p, art)
+        self._event("artifact_deleted", p, doc_id, by_admin=by_admin,
+                    **({"owner": art["owner"], "note": note} if by_admin else {}))
 
     def record_view(self, p: Principal, doc_id: str) -> dict:
         art = self._openable(p, doc_id)
@@ -203,3 +212,70 @@ class ArtifactService:
                                      self.settings.render_ticket_ttl_seconds)
         path = f"/a/{doc_id}" if version is None else f"/a/{doc_id}/v/{int(version)}"
         return f"{self.settings.public_base_url}{path}?t={ticket}"
+
+    # ── administration (ADMIN_GROUP / ADMIN_EMAILS) ─────────────────────────
+    def admin_view(self, art: dict) -> dict:
+        out = {k: _iso(art.get(k)) for k in ADMIN_FIELDS if k in art}
+        out["shared_with_count"] = len(art.get("shared_with") or [])
+        out["url"] = self.link(art["id"])
+        return out
+
+    def admin_list(self, p: Principal, *, q: str = "", owner: str = "", visibility: str = "",
+                   sensitive: bool | None = None, limit: int = 200) -> dict:
+        access.require_admin(p)
+        needle, owner = q.strip().lower(), owner.strip().lower()
+        arts = []
+        for a in self.store.iter_all():
+            if needle and needle not in (a.get("title") or "").lower() and needle not in (a.get("owner") or ""):
+                continue
+            if owner and a.get("owner") != owner:
+                continue
+            if visibility and a.get("visibility") != visibility:
+                continue
+            if sensitive is not None and bool(a.get("sensitive")) != sensitive:
+                continue
+            arts.append(a)
+        arts.sort(key=lambda a: a.get("updated_at") or 0, reverse=True)
+        return {"artifacts": [self.admin_view(a) for a in arts[:max(1, min(limit, 1000))]], "total": len(arts)}
+
+    def admin_stats(self, p: Principal) -> dict:
+        access.require_admin(p)
+        arts = self.store.iter_all()
+        count = lambda key: dict(Counter(str(a.get(key) or "") for a in arts))  # noqa: E731
+        owners = Counter(a.get("owner") for a in arts)
+        return {
+            "artifacts": len(arts),
+            "bytes": sum(int(a.get("size") or 0) for a in arts),
+            "owners": len(owners),
+            "sensitive": sum(1 for a in arts if a.get("sensitive")),
+            "by_visibility": count("visibility"),
+            "by_kind": count("kind"),
+            "by_via": count("created_via"),
+            "top_owners": [{"email": e, "artifacts": n} for e, n in owners.most_common(5)],
+        }
+
+    def admin_moderate(self, p: Principal, doc_id: str, *, withdraw_org: bool = False,
+                       clear_invites: bool = False, sensitive: bool | None = None, note: str = "") -> dict:
+        """Take sharing back or flag an artifact without being its owner. The body is
+        never changed; the owner sees the last action and its note."""
+        access.require_admin(p)
+        art = self.store.get_artifact(doc_id)
+        if art is None:
+            raise NotFound(doc_id)
+        actions = []
+        if sensitive is not None and bool(art.get("sensitive")) != sensitive:
+            self.store.update_metadata(doc_id, {"sensitive": sensitive})
+            actions.append("flagged_sensitive" if sensitive else "unflagged_sensitive")
+            if sensitive and self.settings.sensitive_org_share == "deny":
+                withdraw_org = True
+        if withdraw_org and art.get("visibility") == "shared":
+            self.store.set_visibility(doc_id, "private")
+            actions.append("withdrew_org_share")
+        if clear_invites and art.get("shared_with"):
+            self.store.set_shared_with(doc_id, [])
+            actions.append("cleared_invites")
+        if not actions:
+            raise ArtifactError("nothing to change")
+        art = self.store.record_moderation(doc_id, by=p.email, action=",".join(actions), note=note.strip())
+        self._event("artifact_moderated", p, doc_id, owner=art["owner"], actions=actions, note=note.strip())
+        return self.admin_view(art)
