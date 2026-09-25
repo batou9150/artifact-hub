@@ -38,7 +38,7 @@ frontend/
   src/lib             auth (oidc-client-ts, dev mode), API client
 firebase/             Firestore rules (deny-all for clients) and index overrides
 infra/terraform/      Cloud Run, Firestore, Secret Manager, optional GCS / BigQuery / WIF
-.github/workflows/    CI: tests, build, deploy (dev on main, prod on tag)
+.github/workflows/    CI: tests + checks; deploy template (dev on main, prod on tag)
 docs/                 architecture, security, configuration, open points
 ```
 
@@ -94,6 +94,18 @@ Without a token, `/mcp` answers `401` with
 make test                # backend (in-memory backend) + frontend unit tests + build
 make test-emulator       # backend against the Firestore emulator as well
 ```
+
+## CI/CD
+
+`.github/workflows/ci.yml` runs on every pull request and push to `main`:
+
+1. **backend**: pytest against the in-memory store and the Firestore emulator.
+2. **frontend**: `npm test` and a production build.
+3. **terraform**: `fmt -check` and `validate` (no backend, nothing applied).
+4. **deploy (template)**: builds the image, deploys it to Cloud Run (dev on `main`, prod
+   on a `v*` tag) and smoke-tests `/healthz` and `/mcp`. It is **skipped** until the
+   repository variables listed at the top of the workflow are set (outputs of
+   `infra/terraform`), so a fork stays green until it is wired to its own project.
 
 ## Documentation
 

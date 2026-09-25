@@ -1,5 +1,8 @@
-# Written, never run from this repository yet. Required repository configuration
-# (Settings > Secrets and variables > Actions > Variables), all outputs of
+# Stages: backend, frontend and terraform checks run on every PR and push; then
+# deploy (TEMPLATE) builds the image and rolls it out to Cloud Run.
+#
+# The deploy job is a template: it is skipped until the repository variables below
+# are set (Settings > Secrets and variables > Actions > Variables), all outputs of
 # infra/terraform:
 #   GCP_PROJECT_ID, GCP_REGION, GCP_WIF_PROVIDER, GCP_DEPLOYER_SA,
 #   CLOUD_RUN_SERVICE_DEV, CLOUD_RUN_SERVICE_PROD
@@ -70,8 +73,10 @@ jobs:
       - run: terraform validate
 
   deploy:
-    # dev on every merge to main, prod on a v* tag.
-    if: github.event_name == 'push'
+    # TEMPLATE: dev on every merge to main, prod on a v* tag; skipped (not failed)
+    # until GCP_PROJECT_ID is set, so forks and this template repo stay green.
+    name: deploy (template)
+    if: github.event_name == 'push' && vars.GCP_PROJECT_ID != ''
     needs: [backend, frontend, terraform]
     runs-on: ubuntu-latest
     environment: ${{ startsWith(github.ref, 'refs/tags/v') && 'prod' || 'dev' }}
