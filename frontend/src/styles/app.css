@@ -91,7 +91,7 @@ input, select, textarea, button { font: inherit; color: inherit; }
   background: var(--surface); border-bottom: 1px solid var(--border);
 }
 .brand { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; color: var(--text); }
-.brand-mark { width: 22px; height: 22px; border-radius: 6px; background: var(--accent); display: inline-block; }
+.brand-mark { width: 22px; height: 22px; display: block; flex: none; }
 .appbar-center { flex: 1; }
 .appbar-user { display: flex; align-items: center; gap: 10px; }
 .appbar-id { display: flex; flex-direction: column; line-height: 1.2; }

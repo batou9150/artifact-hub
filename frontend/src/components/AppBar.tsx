@@ -18,7 +18,7 @@ export function AppBar({ children }: { children?: React.ReactNode }) {
     <>
       <DevBanner />
       <header className="appbar">
-        <Link to="/" className="brand"><span className="brand-mark" aria-hidden="true" />Artifact Hub</Link>
+        <Link to="/" className="brand"><img src="/favicon.svg" className="brand-mark" alt="" aria-hidden="true" />Artifact Hub</Link>
         <div className="appbar-center">{children}</div>
         {state.phase === 'signedIn' && (
           <div className="appbar-user">
