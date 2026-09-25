@@ -91,6 +91,71 @@ resource "google_secret_manager_secret_iam_member" "runtime_reads_ticket_key" {
   member    = "serviceAccount:${google_service_account.runtime.email}"
 }
 
+# ── authorization server for MCP clients (optional) ──────────────────────
+resource "tls_private_key" "oauth" {
+  count       = var.oauth_server ? 1 : 0
+  algorithm   = "ECDSA"
+  ecdsa_curve = "P256"
+}
+
+resource "google_secret_manager_secret" "oauth_signing_key" {
+  count     = var.oauth_server ? 1 : 0
+  secret_id = "${local.name}-oauth-signing-key"
+  replication {
+    auto {}
+  }
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_secret_manager_secret_version" "oauth_signing_key" {
+  count       = var.oauth_server ? 1 : 0
+  secret      = google_secret_manager_secret.oauth_signing_key[0].id
+  secret_data = tls_private_key.oauth[0].private_key_pem_pkcs8
+}
+
+resource "google_secret_manager_secret_iam_member" "runtime_reads_oauth_key" {
+  count     = var.oauth_server ? 1 : 0
+  secret_id = google_secret_manager_secret.oauth_signing_key[0].id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.runtime.email}"
+}
+
+# Pending requests, codes and refresh tokens expire on their own.
+resource "google_firestore_field" "oauth_grants_ttl" {
+  count      = var.oauth_server ? 1 : 0
+  database   = google_firestore_database.db.name
+  collection = "oauth_grants"
+  field      = "expires_at"
+  ttl_config {}
+  index_config {}
+}
+
+# ── OIDC client registered beforehand (optional) ─────────────────────────
+locals {
+  oidc_secrets = { for k, v in {
+    client_id     = var.oidc_client_id_secret
+    client_secret = var.oidc_client_secret_secret
+  } : k => v if v != "" }
+  # env name => secret id, read by Cloud Run at startup
+  oidc_secret_env = merge(
+    var.oidc_client_id_secret == "" ? {} : { OIDC_CLIENT_ID = var.oidc_client_id_secret },
+    var.oidc_client_id_secret == "" || length(var.oidc_audiences) > 0 ? {} : { OIDC_AUDIENCES = var.oidc_client_id_secret },
+    var.oidc_client_secret_secret == "" ? {} : { OIDC_CLIENT_SECRET = var.oidc_client_secret_secret },
+    var.oauth_server ? { OAUTH_SIGNING_KEY = "${local.name}-oauth-signing-key" } : {},
+  )
+  oidc_plain_env = merge(
+    var.oidc_client_id_secret == "" ? { OIDC_CLIENT_ID = var.oidc_client_id } : {},
+    length(var.oidc_audiences) > 0 ? { OIDC_AUDIENCES = join(",", var.oidc_audiences) } : {},
+  )
+}
+
+resource "google_secret_manager_secret_iam_member" "runtime_reads_oidc" {
+  for_each  = local.oidc_secrets
+  secret_id = each.value
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.runtime.email}"
+}
+
 # ── Cloud Run: API + sandbox (/a/*) + MCP (/mcp) + SPA, one service ───────
 resource "google_cloud_run_v2_service" "hub" {
   name     = local.name
@@ -99,7 +164,9 @@ resource "google_cloud_run_v2_service" "hub" {
   # tokens on /api and /mcp, render tickets on /a/*), not by Cloud Run IAM,
   # because MCP clients call from outside the organisation. Put Cloud Armor in
   # front through a load balancer if an IP allow-list is required.
-  ingress = "INGRESS_TRAFFIC_ALL"
+  ingress              = "INGRESS_TRAFFIC_ALL"
+  invoker_iam_disabled = var.invoker_iam_disabled
+  deletion_protection  = false
 
   template {
     service_account = google_service_account.runtime.email
@@ -136,17 +203,44 @@ resource "google_cloud_run_v2_service" "hub" {
         name  = "OIDC_ISSUER"
         value = var.oidc_issuer
       }
-      env {
-        name  = "OIDC_AUDIENCES"
-        value = join(",", var.oidc_audiences)
+      dynamic "env" {
+        for_each = local.oidc_plain_env
+        content {
+          name  = env.key
+          value = env.value
+        }
       }
-      env {
-        name  = "OIDC_CLIENT_ID"
-        value = var.oidc_client_id
+      dynamic "env" {
+        for_each = local.oidc_secret_env
+        content {
+          name = env.key
+          value_source {
+            secret_key_ref {
+              secret  = env.value
+              version = "latest"
+            }
+          }
+        }
       }
       env {
         name  = "OIDC_SCOPES"
         value = var.oidc_scopes
+      }
+      env {
+        name  = "OIDC_TOKENINFO_URL"
+        value = var.oidc_tokeninfo_url
+      }
+      env {
+        name  = "OAUTH_SERVER"
+        value = tostring(var.oauth_server)
+      }
+      env {
+        name  = "OAUTH_ALLOWED_CLIENT_HOSTS"
+        value = join(",", var.oauth_allowed_client_hosts)
+      }
+      env {
+        name  = "MCP_REQUIRED_SCOPES"
+        value = join(",", var.mcp_required_scopes)
       }
       env {
         name  = "OIDC_UI_TOKEN"
@@ -204,10 +298,16 @@ resource "google_cloud_run_v2_service" "hub" {
       }
     }
   }
-  depends_on = [google_secret_manager_secret_iam_member.runtime_reads_ticket_key]
+  depends_on = [
+    google_secret_manager_secret_iam_member.runtime_reads_ticket_key,
+    google_secret_manager_secret_iam_member.runtime_reads_oidc,
+    google_secret_manager_secret_iam_member.runtime_reads_oauth_key,
+    google_secret_manager_secret_version.oauth_signing_key,
+  ]
 }
 
 resource "google_cloud_run_v2_service_iam_member" "public" {
+  count    = var.invoker_iam_disabled ? 0 : 1
   name     = google_cloud_run_v2_service.hub.name
   location = var.region
   role     = "roles/run.invoker"

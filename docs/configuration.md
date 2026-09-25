@@ -12,13 +12,19 @@ All settings are environment variables read once at startup (`backend/artifact_h
 | `OIDC_ISSUER` | | Exact `iss` value (no trailing slash). |
 | `OIDC_AUDIENCES` | | Comma list of accepted `aud` values. |
 | `OIDC_CLIENT_ID` | | Public SPA client (no secret). |
+| `OIDC_CLIENT_SECRET` | | Only for clients that need a secret at the token endpoint (Google "Web application"). Enables `POST /api/auth/token`, which relays the SPA's code + PKCE verifier to the IdP with the secret added server side. From Secret Manager. |
 | `OIDC_SCOPES` | `openid profile email` | Scopes requested by the SPA. |
 | `OIDC_UI_TOKEN` | `access` | Token the SPA sends: `access` (JWT access token for this API) or `id`. |
 | `OIDC_JWKS_URI` | discovered | Override of the discovered `jwks_uri`. |
+| `OIDC_TOKENINFO_URL` | | Introspection endpoint for opaque access tokens (MCP clients). Google: `https://oauth2.googleapis.com/tokeninfo`; `aud` must be in `OIDC_AUDIENCES`. |
 | `OIDC_EMAIL_CLAIMS` | `email,preferred_username,upn` | First claim holding an email becomes the identity key. |
 | `OIDC_GROUPS_CLAIM` | `groups` | Claim holding group names or ids (`roles` works too). |
 | `OIDC_NAME_CLAIM` | `name` | Display name. |
 | `MCP_REQUIRED_SCOPES` | | Scopes the MCP endpoint requires (advertised in the protected resource metadata). |
+| `OAUTH_SERVER` | `false` | Authorization server for MCP clients (CIMD). Needs `AUTH_MODE=oidc`, the IdP client (`OIDC_CLIENT_ID`, and `OIDC_CLIENT_SECRET` for Google) with redirect URI `<PUBLIC_BASE_URL>/oauth/callback`. |
+| `OAUTH_SIGNING_KEY` | | EC P-256 private key (PEM) signing the MCP access tokens. Secret Manager. |
+| `OAUTH_ALLOWED_CLIENT_HOSTS` | | Comma list of hosts allowed to serve client metadata documents. Empty = any public host. |
+| `OAUTH_ACCESS_TOKEN_TTL` / `OAUTH_REFRESH_TOKEN_TTL` | `3600` / `2592000` | Seconds. |
 | `PUBLISHER_GROUP` | `artifact-publishers` | May share with the whole organisation. |
 | `ADMIN_GROUP` | `artifact-admins` | May delete any artifact (implies publisher). |
 | `ALLOWED_EMAIL_DOMAINS` | | Comma list; restricts sign-in and invitees. Empty = any identity the IdP vouches for. |
@@ -67,10 +73,15 @@ email and the groups.
 
 ### Google (Workspace / Cloud Identity)
 
-* OAuth client of type "Web application". To verify: whether Google accepts the code
-  exchange without a client secret for your client type; if it does not, use an IdP broker
-  (or Entra ID / Okta) so the SPA stays a public client with no secret in the browser.
+* OAuth client of type "Web application", authorized redirect URI `<APP_ORIGIN>/callback`.
+  Google refuses the code exchange without the client secret even with PKCE, so set
+  `OIDC_CLIENT_SECRET` (Terraform: `oidc_client_secret_secret`); the API performs the
+  exchange and the secret never reaches the browser.
 * Google access tokens are opaque: set `OIDC_UI_TOKEN=id`, `OIDC_AUDIENCES=<client id>`,
   `OIDC_ISSUER=https://accounts.google.com`.
+* MCP clients: set `OAUTH_SERVER=true` and register `<PUBLIC_BASE_URL>/oauth/callback` on
+  the same OAuth client. MCP clients then connect with the `/mcp` URL alone (CIMD).
+  Without it, pre-registered clients can send Google's opaque access tokens if
+  `OIDC_TOKENINFO_URL` is set.
 * Google ID tokens carry no groups: groups need the Cloud Identity Groups API or a broker;
   until then use `ALLOWED_EMAIL_DOMAINS` and assign publishers through an IdP broker.

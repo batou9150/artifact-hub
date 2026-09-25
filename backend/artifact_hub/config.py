@@ -41,8 +41,15 @@ class Settings:
     oidc_issuer: str = ""
     oidc_audiences: tuple[str, ...] = ()
     oidc_client_id: str = ""
+    # Only for IdPs whose SPA-usable client still needs a secret at the token
+    # endpoint (Google "Web application" clients): enables POST /api/auth/token,
+    # which adds it server side. Never sent to the browser.
+    oidc_client_secret: str = ""
     oidc_scopes: str = "openid profile email"
     oidc_jwks_uri: str = ""  # optional override; discovered from the issuer otherwise
+    # Introspection endpoint for opaque (non-JWT) access tokens, which MCP clients
+    # send (Google: https://oauth2.googleapis.com/tokeninfo). Empty = JWTs only.
+    oidc_tokeninfo_url: str = ""
     oidc_email_claims: tuple[str, ...] = ("email", "preferred_username", "upn")
     oidc_groups_claim: str = "groups"
     oidc_name_claim: str = "name"
@@ -51,6 +58,13 @@ class Settings:
     # server), "id" when it does not (Google issues opaque access tokens; its ID
     # token has aud = client id).
     oidc_ui_token: str = "access"
+    # Authorization server for MCP clients (Client ID Metadata Documents): this
+    # service signs users in at the IdP and issues its own tokens for /mcp.
+    oauth_server: bool = False
+    oauth_signing_key: str = ""  # EC P-256 private key, PEM
+    oauth_allowed_client_hosts: tuple[str, ...] = ()  # client_id hosts allowed (empty = any)
+    oauth_access_token_ttl: int = 3600
+    oauth_refresh_token_ttl: int = 30 * 24 * 3600
     # Scopes the MCP endpoint requires on the access token (empty = none required).
     mcp_required_scopes: tuple[str, ...] = ()
 
@@ -103,13 +117,20 @@ class Settings:
             oidc_issuer=env("OIDC_ISSUER", "").rstrip("/"),
             oidc_audiences=_csv(env("OIDC_AUDIENCES", "")),
             oidc_client_id=env("OIDC_CLIENT_ID", ""),
+            oidc_client_secret=env("OIDC_CLIENT_SECRET", ""),
             oidc_scopes=env("OIDC_SCOPES", "openid profile email"),
             oidc_jwks_uri=env("OIDC_JWKS_URI", ""),
+            oidc_tokeninfo_url=env("OIDC_TOKENINFO_URL", ""),
             oidc_email_claims=_csv(env("OIDC_EMAIL_CLAIMS", "email,preferred_username,upn")),
             oidc_groups_claim=env("OIDC_GROUPS_CLAIM", "groups"),
             oidc_name_claim=env("OIDC_NAME_CLAIM", "name"),
             oidc_ui_token=env("OIDC_UI_TOKEN", "access"),
             mcp_required_scopes=_csv(env("MCP_REQUIRED_SCOPES", "")),
+            oauth_server=_bool(env("OAUTH_SERVER")),
+            oauth_signing_key=env("OAUTH_SIGNING_KEY", ""),
+            oauth_allowed_client_hosts=tuple(h.lower() for h in _csv(env("OAUTH_ALLOWED_CLIENT_HOSTS", ""))),
+            oauth_access_token_ttl=int(env("OAUTH_ACCESS_TOKEN_TTL", "3600")),
+            oauth_refresh_token_ttl=int(env("OAUTH_REFRESH_TOKEN_TTL", str(30 * 24 * 3600))),
             publisher_group=env("PUBLISHER_GROUP", "artifact-publishers"),
             admin_group=env("ADMIN_GROUP", "artifact-admins"),
             allowed_email_domains=tuple(d.lower().lstrip("@") for d in _csv(env("ALLOWED_EMAIL_DOMAINS", ""))),
@@ -140,7 +161,16 @@ class Settings:
         if self.auth_mode == "oidc":
             if not self.oidc_issuer or not self.oidc_audiences:
                 raise ValueError("AUTH_MODE=oidc requires OIDC_ISSUER and OIDC_AUDIENCES")
-            if self.render_ticket_secret.startswith("dev-only"):
-                raise ValueError("AUTH_MODE=oidc requires a real RENDER_TICKET_SECRET")
+            if self.render_ticket_secret.startswith("dev-only") or len(self.render_ticket_secret) < 32:
+                raise ValueError("AUTH_MODE=oidc requires a real RENDER_TICKET_SECRET (32+ characters)")
+            if self.oidc_client_secret and not self.oidc_client_id:
+                raise ValueError("OIDC_CLIENT_SECRET requires OIDC_CLIENT_ID")
+        if self.oauth_server:
+            if self.auth_mode != "oidc" or not self.oidc_client_id:
+                raise ValueError("OAUTH_SERVER requires AUTH_MODE=oidc and OIDC_CLIENT_ID (upstream sign-in)")
+            if not self.oauth_signing_key:
+                raise ValueError("OAUTH_SERVER requires OAUTH_SIGNING_KEY")
+            if self.environment not in {"local", "test"} and not self.public_base_url.startswith("https://"):
+                raise ValueError("OAUTH_SERVER requires an https PUBLIC_BASE_URL")
         if self.sensitive_org_share not in {"deny", "allow"}:
             raise ValueError("SENSITIVE_ORG_SHARE must be 'deny' or 'allow'")

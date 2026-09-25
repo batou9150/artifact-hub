@@ -12,11 +12,10 @@ The owner of anything created here is the verified human behind the token, never
 the agent: tools take no owner/author argument and read the identity from the
 request's access token.
 
-Out of scope here (see docs/open-points.md): acting as an OAuth authorization
-server (DCR / CIMD client registration, token issuance). Enterprise IdPs rarely
-allow dynamic client registration, so production deployments either put an
-authorization-server facade in front (the separate MCP server project) or
-pre-register the MCP client in the IdP.
+With OAUTH_SERVER on, the metadata names THIS service as the authorization
+server instead (artifact_hub/oauth: Client ID Metadata Documents, upstream sign-in
+at the IdP) and the tokens it issues (aud = the /mcp URL) are verified locally.
+IdP tokens are still accepted, for clients pre-registered in the IdP.
 """
 from __future__ import annotations
 
@@ -45,18 +44,25 @@ class HubTokenVerifier:
     """Bridges the SDK's TokenVerifier protocol to the hub Authenticator. The
     Principal rides in AccessToken.claims so tools can rebuild it."""
 
-    def __init__(self, authenticator: Authenticator, settings):
+    def __init__(self, authenticator: Authenticator, settings, oauth_server=None):
         self.authenticator = authenticator
         self.settings = settings
+        self.oauth_server = oauth_server
 
     async def verify_token(self, token: str) -> AccessToken | None:
-        p = self.authenticator.authenticate(token)
+        claims = self.oauth_server.verify_access_token(token) if self.oauth_server else None
+        if claims is not None:
+            p = self.oauth_server.principal_from_claims(claims)
+            client_id, scopes = claims["client_id"], str(claims.get("scope", "")).split()
+        else:
+            p = self.authenticator.authenticate(token)
+            client_id, scopes = "artifact-hub-mcp", list(self.settings.mcp_required_scopes)
         if p is None:
             return None
         return AccessToken(
             token=token,
-            client_id="artifact-hub-mcp",
-            scopes=list(self.settings.mcp_required_scopes),
+            client_id=client_id,
+            scopes=scopes,
             subject=p.subject or p.email,
             resource=self.settings.mcp_resource_url,
             claims={"principal": {
@@ -89,13 +95,13 @@ def _meta(**kwargs) -> dict:
     return {k: v for k, v in kwargs.items() if v is not None}
 
 
-def build_mcp(settings, service: ArtifactService, authenticator: Authenticator) -> MCPServer:
+def build_mcp(settings, service: ArtifactService, authenticator: Authenticator, oauth_server=None) -> MCPServer:
     mcp = MCPServer(
         name="artifact-hub",
         instructions=INSTRUCTIONS,
-        token_verifier=HubTokenVerifier(authenticator, settings),
+        token_verifier=HubTokenVerifier(authenticator, settings, oauth_server),
         auth=AuthSettings(
-            issuer_url=settings.oidc_issuer or settings.public_base_url,
+            issuer_url=settings.public_base_url if oauth_server else (settings.oidc_issuer or settings.public_base_url),
             resource_server_url=settings.mcp_resource_url,
             required_scopes=list(settings.mcp_required_scopes) or None,
             validate_token_resource=False,  # audience is checked by the OIDC verifier

@@ -47,6 +47,8 @@ function userManager(config: HubConfig): UserManager {
       scope: config.oidc.scopes,
       userStore: new WebStorageStateStore({ store: window.sessionStorage }),
       automaticSilentRenew: false,
+      // The API adds the client secret server side; everything else is discovered.
+      ...(config.oidc.token_endpoint ? { metadataSeed: { token_endpoint: config.oidc.token_endpoint } } : {}),
     })
   }
   return manager!

@@ -21,11 +21,33 @@ variable "public_base_url" {
 variable "oidc_issuer" { type = string }
 variable "oidc_audiences" {
   type        = list(string)
+  default     = []
   description = "Accepted token audiences (API app id URI for Entra ID, authorization server audience for Okta, client id for Google ID tokens)."
 }
 variable "oidc_client_id" {
   type        = string
-  description = "Public SPA client (auth code + PKCE, no secret)."
+  default     = ""
+  description = "Public SPA client (auth code + PKCE, no secret). Leave empty when oidc_client_id_secret is set."
+}
+variable "oidc_client_id_secret" {
+  type        = string
+  default     = ""
+  description = "Existing Secret Manager secret holding the client id (read at runtime into OIDC_CLIENT_ID, and into OIDC_AUDIENCES when oidc_audiences is empty)."
+}
+variable "oidc_client_secret_secret" {
+  type        = string
+  default     = ""
+  description = "Existing Secret Manager secret holding the client secret, for IdPs that require it at the token endpoint (Google \"Web application\" clients). Enables the server-side code exchange."
+}
+variable "oidc_tokeninfo_url" {
+  type        = string
+  default     = ""
+  description = "Introspection endpoint for opaque access tokens sent by MCP clients (Google: https://oauth2.googleapis.com/tokeninfo)."
+}
+variable "mcp_required_scopes" {
+  type        = list(string)
+  default     = []
+  description = "Scopes the MCP endpoint advertises and requires (Google: openid, email, profile so the access token carries the email)."
 }
 variable "oidc_scopes" {
   type    = string
@@ -52,6 +74,12 @@ variable "allowed_email_domains" {
   default = []
 }
 
+variable "invoker_iam_disabled" {
+  type        = bool
+  default     = false
+  description = "Make the service public without an allUsers IAM binding (needed when the domain-restricted-sharing org policy forbids allUsers)."
+}
+
 variable "embedding_provider" {
   type    = string
   default = "vertex"
@@ -73,4 +101,16 @@ variable "github_repository" {
   type        = string
   default     = ""
   description = "owner/repo allowed to deploy through Workload Identity Federation (empty = skip)."
+}
+
+variable "oauth_server" {
+  type        = bool
+  default     = false
+  description = "Run the authorization server for MCP clients (Client ID Metadata Documents, upstream sign-in at the IdP). Register <public_base_url>/oauth/callback as a redirect URI of the IdP client."
+}
+
+variable "oauth_allowed_client_hosts" {
+  type        = list(string)
+  default     = []
+  description = "Hosts allowed to serve MCP client metadata documents (empty = any public host)."
 }

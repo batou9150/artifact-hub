@@ -15,8 +15,10 @@ import logging
 import os
 import sys
 from pathlib import Path
+from urllib.parse import parse_qs
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
 from pydantic import BaseModel, Field
@@ -26,8 +28,10 @@ from .access import Forbidden
 from .auth import Authenticator, bearer
 from .auth.dev import dev_directory
 from .auth.identity import Principal
+from .auth.token_exchange import TokenExchange, TokenExchangeError
 from .config import Settings
 from .mcp_server import build_mcp, mcp_http_app
+from .oauth import AuthorizationServer, build_authorization_server
 from .search.embeddings import build_embedder
 from .search.service import SearchService
 from .service import ArtifactService, NotFound
@@ -77,7 +81,8 @@ class RevertRequest(BaseModel):
 # ── app factory ─────────────────────────────────────────────────────────────
 
 def create_app(settings: Settings | None = None, *, store=None, embedder=None,
-               authenticator: Authenticator | None = None):
+               authenticator: Authenticator | None = None, token_exchange: TokenExchange | None = None,
+               oauth_server: AuthorizationServer | None = None):
     """Returns (fastapi_app, root_asgi_app). The root app dispatches /mcp and the
     MCP metadata to the SDK app and everything else to FastAPI."""
     settings = settings or Settings.from_env()
@@ -88,8 +93,12 @@ def create_app(settings: Settings | None = None, *, store=None, embedder=None,
     authenticator = authenticator or Authenticator(settings)
     search = SearchService(store, embedder, min_score=settings.search_min_score)
     service = ArtifactService(settings, store, search)
-    mcp = build_mcp(settings, service, authenticator)
+    if oauth_server is None and settings.oauth_server:
+        oauth_server = build_authorization_server(settings, authenticator.oidc)
+    mcp = build_mcp(settings, service, authenticator, oauth_server)
     mcp_app = mcp_http_app(settings, mcp)
+    if token_exchange is None and settings.auth_mode == "oidc" and settings.oidc_client_secret:
+        token_exchange = TokenExchange(settings)
 
     if settings.auth_mode == "dev":
         log.warning("DEV AUTH MODE: fake identities accepted (Bearer dev:<email>). Never use in a shared environment.")
@@ -169,10 +178,22 @@ def create_app(settings: Settings | None = None, *, store=None, embedder=None,
         if settings.auth_mode == "oidc":
             cfg["oidc"] = {"issuer": settings.oidc_issuer, "client_id": settings.oidc_client_id,
                            "scopes": settings.oidc_scopes, "ui_token": settings.oidc_ui_token}
+            if token_exchange is not None:
+                cfg["oidc"]["token_endpoint"] = f"{settings.public_base_url}/api/auth/token"
         else:
             cfg["dev_users"] = [{"email": u["email"], "name": u["name"], "groups": u["groups"]}
                                 for u in dev_directory(settings)]
         return cfg
+
+    if token_exchange is not None:
+        @app.post("/api/auth/token", tags=["meta"], include_in_schema=False)
+        async def auth_token(request: Request):
+            form = {k: v[0] for k, v in parse_qs((await request.body()).decode(), keep_blank_values=True).items()}
+            try:
+                status, body = await run_in_threadpool(token_exchange.exchange, form)
+            except TokenExchangeError as e:
+                status, body = e.status, e.body
+            return JSONResponse(body, status_code=status, headers={"Cache-Control": "no-store"})
 
     # ── identity & directory ────────────────────────────────────────────────
     @app.get("/api/me", tags=["meta"])
@@ -270,12 +291,16 @@ def create_app(settings: Settings | None = None, *, store=None, embedder=None,
     def sandbox_version(artifact_id: str, n: int, t: str = "", authorization: str | None = Header(default=None)):
         return render(artifact_id, n, t, authorization)
 
+    # ── authorization server for MCP clients ────────────────────────────────
+    if oauth_server is not None:
+        app.include_router(oauth_server.router())
+
     # ── SPA (production image) ──────────────────────────────────────────────
     static = Path(settings.static_dir) if settings.static_dir else None
     if static and (static / "index.html").exists():
         @app.get("/{path:path}", include_in_schema=False)
         def spa(path: str):
-            if path.startswith(("api/", "a/")):
+            if path.startswith(("api/", "a/", "oauth/", ".well-known/")):
                 raise HTTPException(404)
             candidate = (static / path).resolve()
             if path and candidate.is_file() and static.resolve() in candidate.parents:

@@ -58,6 +58,34 @@ gets a warning (it would render broken, since the sandbox blocks egress).
   when `ENVIRONMENT=prod`; OIDC mode refuses the default ticket secret; the UI shows a
   permanent banner.
 
+## MCP authorization server
+
+Enabled with `OAUTH_SERVER=true` (`artifact_hub/oauth`).
+
+* **Client registration: CIMD only.** `client_id` is an https URL (default port, a path,
+  no userinfo / fragment / dot segments). Its document is fetched with SSRF guards: every
+  resolved address must be publicly routable, the request is sent to the checked address
+  with TLS verified against the host name (no DNS rebinding), no redirects, 5 s, 5 KiB.
+  The document must name itself, list `redirect_uris` (https, http loopback, or a
+  private-use scheme), carry no secret, and be a public client. Optional host allow-list
+  `OAUTH_ALLOWED_CLIENT_HOSTS`.
+* **Authorize:** errors about the client or redirect URI are shown, never redirected;
+  exact redirect match (loopback port free, RFC 8252); PKCE S256 required; `resource`
+  must be the `/mcp` URL; responses carry `iss` (RFC 9207).
+* **Sign-in and consent:** the user signs in at the IdP (code + PKCE + nonce, client
+  secret server side, ID token verified like any IdP token, domain allow-list applied).
+  The pending request is bound to the starting browser by an `HttpOnly`, `SameSite=Lax`,
+  `__Host-` cookie. The consent page shows the account, the client_id and its host, and
+  where the browser returns; it has a per-request CSRF token, a strict CSP and cannot be
+  framed. Consent is asked on every authorization.
+* **Tokens:** access tokens are ES256 JWTs (`typ: at+jwt`), `aud` = the `/mcp` URL, 1 h;
+  the REST API does not accept them. Refresh tokens are opaque, stored hashed, single use
+  and rotated; replaying a code or a rotated refresh token revokes the whole sign-in.
+  Refreshing re-applies the domain allow-list. Codes live 60 s, pending requests 10 min;
+  Firestore TTL cleans up.
+* **Residual:** consent is the defence against a malicious client that registers the
+  legitimate loopback redirect of another app; users must read what they approve.
+
 ## Authorization matrix
 
 | Action | Owner | Invited (`shared_with`) | Organisation (`visibility=shared`) | Admin group | Anyone else |

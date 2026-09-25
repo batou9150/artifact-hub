@@ -13,7 +13,8 @@ export type HubConfig = {
   max_shared_with: number
   api_base: string
   mcp_url: string
-  oidc?: { issuer: string; client_id: string; scopes: string; ui_token: 'access' | 'id' }
+  // token_endpoint: set when the API exchanges the code itself (client needs a secret, e.g. Google)
+  oidc?: { issuer: string; client_id: string; scopes: string; ui_token: 'access' | 'id'; token_endpoint?: string }
   dev_users?: DevUser[]
 }
 

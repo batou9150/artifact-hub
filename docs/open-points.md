@@ -1,31 +1,23 @@
 # Open points
 
-## 1. MCP client registration: DCR or CIMD (decision needed)
+## 1. MCP client registration: CIMD (implemented)
 
-The MCP endpoint is a spec-compliant **resource server**: it publishes RFC 9728 protected
-resource metadata (`/.well-known/oauth-protected-resource/mcp`), answers `401` with
-`WWW-Authenticate: Bearer resource_metadata=...`, and validates bearer tokens issued by the
-organisation's IdP (issuer, audience, JWKS). The metadata names the IdP as the
-authorization server.
+With `OAUTH_SERVER=true` this service is also the **authorization server** of its MCP
+endpoint (`artifact_hub/oauth`, MCP authorization spec 2025-11-25): clients register
+through **Client ID Metadata Documents**, the user signs in at the IdP (confidential
+client, server side), approves the client on a consent page, and the service issues its
+own tokens (JWT, `aud` = the `/mcp` URL, 1 h; rotating refresh tokens, 30 days). The
+protected resource metadata then names this service as the authorization server. See
+docs/security.md, "MCP authorization server".
 
-What it does **not** do is act as an authorization server. MCP clients discover the
-authorization server and then need a client registration:
-
-* **Dynamic Client Registration (RFC 7591)**: Entra ID does not support it; Okta supports
-  it only with specific configuration and admin rights. Rarely acceptable in an enterprise
-  tenant.
-* **Client ID Metadata Documents (CIMD)**: the client identifies itself with an HTTPS URL
-  pointing to its metadata. Newer; support on both the MCP client side and the IdP side must
-  be verified for the target client.
-* **Pre-registered client**: the MCP client is registered once in the IdP; works when the
-  client lets an administrator configure a client id (and possibly a secret).
-
-Recommended path: reuse the **authorization-server facade** of the separate MCP server
-project (it implements DCR / CIMD towards MCP clients, delegates user login to the IdP and
-issues its own short-lived tokens). The hub then accepts that facade's tokens: set
-`OIDC_ISSUER` / `OIDC_AUDIENCES` to the facade's issuer and audience, and the
-authorization server in the metadata follows automatically. Until then, validate the flow
-with a pre-registered client on a test tenant.
+Still open:
+* **DCR (RFC 7591)** is not implemented; clients that support neither CIMD nor
+  pre-registration cannot connect.
+* **Signing key rotation**: one key (`OAUTH_SIGNING_KEY`); rotating it invalidates the
+  access tokens in flight (at most 1 h). A second, verify-only key would make it seamless.
+* **Grant management UI**: users cannot yet list or revoke connected clients themselves
+  (deleting the `family:*` documents in `oauth_grants` revokes a sign-in).
+* Without OAUTH_SERVER, IdP-issued tokens are accepted as before (pre-registered clients).
 
 Also to confirm with the chosen IdP: tokens with the right **audience** for this resource
 (RFC 8707 resource indicators are not honoured by every IdP; `validate_token_resource` is

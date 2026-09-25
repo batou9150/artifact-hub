@@ -105,3 +105,115 @@ def test_settings_guards():
     with pytest.raises(ValueError):
         Settings(auth_mode="oidc").check()
     Settings(auth_mode="oidc", oidc_issuer=ISSUER, oidc_audiences=(AUD,), render_ticket_secret="s" * 32).check()
+    for weak in ("", "short"):
+        with pytest.raises(ValueError):
+            Settings(auth_mode="oidc", oidc_issuer=ISSUER, oidc_audiences=(AUD,), render_ticket_secret=weak).check()
+
+
+# ── confidential code exchange (Google "Web application" clients) ────────────
+
+def exchange_app(upstream_calls):
+    import httpx
+    from artifact_hub.auth.token_exchange import TokenExchange
+
+    def handler(request: httpx.Request):
+        if request.url.path.endswith("/.well-known/openid-configuration"):
+            return httpx.Response(200, json={"token_endpoint": "https://idp.test/token"})
+        upstream_calls.append(dict(httpx.QueryParams(request.content.decode())))
+        return httpx.Response(200, json={"id_token": "id", "access_token": "at", "token_type": "Bearer"})
+
+    s = oidc_settings(oidc_client_id="spa-client", oidc_client_secret="s3cret")
+    tx = TokenExchange(s, client=httpx.Client(transport=httpx.MockTransport(handler)))
+    fastapi_app, _root = create_app(s, authenticator=Authenticator(s, verifier(s)), token_exchange=tx)
+    return fastapi_app
+
+
+def exchange_form(**over):
+    form = {"grant_type": "authorization_code", "code": "abc", "code_verifier": "v" * 43,
+            "redirect_uri": f"{BASE}/callback", "client_id": "spa-client"}
+    form.update(over)
+    return {k: v for k, v in form.items() if v is not None}
+
+
+def test_token_exchange_adds_secret_server_side():
+    calls = []
+    with TestClient(exchange_app(calls)) as c:
+        cfg = c.get("/api/config").json()
+        assert cfg["oidc"]["token_endpoint"] == f"{BASE}/api/auth/token"
+        assert "s3cret" not in str(cfg)
+        r = c.post("/api/auth/token", data=exchange_form())
+    assert r.status_code == 200 and r.json()["id_token"] == "id"
+    assert r.headers["cache-control"] == "no-store"
+    assert calls == [{**exchange_form(), "client_secret": "s3cret"}]
+
+
+@pytest.mark.parametrize("bad", [
+    {"grant_type": "refresh_token"},
+    {"grant_type": "client_credentials"},
+    {"client_id": "another-client"},
+    {"redirect_uri": "https://evil.test/callback"},
+    {"code_verifier": None},
+    {"code": None},
+])
+def test_token_exchange_refuses_anything_else(bad):
+    calls = []
+    with TestClient(exchange_app(calls)) as c:
+        r = c.post("/api/auth/token", data=exchange_form(**bad))
+    assert r.status_code == 400 and "error" in r.json()
+    assert calls == []
+
+
+def test_no_exchange_endpoint_without_secret():
+    s = oidc_settings(oidc_client_id="spa-client")
+    fastapi_app, _root = create_app(s, authenticator=Authenticator(s, verifier(s)))
+    with TestClient(fastapi_app) as c:
+        assert "token_endpoint" not in c.get("/api/config").json()["oidc"]
+        assert c.post("/api/auth/token", data=exchange_form()).status_code in (404, 405)
+
+
+# ── opaque access tokens (Google, sent by MCP clients) ──────────────────────
+
+def opaque_verifier(info=None, status=200, calls=None):
+    import httpx
+
+    def handler(request: httpx.Request):
+        if calls is not None:
+            calls.append(request)
+        return httpx.Response(status, json=info or {})
+
+    s = oidc_settings(oidc_tokeninfo_url="https://idp.test/tokeninfo")
+    return OIDCVerifier(s, jwk_resolver=lambda _t: KEY.public_key(),
+                        http=httpx.Client(transport=httpx.MockTransport(handler)))
+
+
+def google_info(**over):
+    info = {"aud": AUD, "azp": AUD, "sub": "g-1", "email": "Jane@corp.example", "email_verified": "true",
+            "exp": str(int(time.time()) + 600), "scope": "openid https://www.googleapis.com/auth/userinfo.email"}
+    info.update(over)
+    return info
+
+
+def test_opaque_token_via_tokeninfo_and_cached():
+    calls = []
+    v = opaque_verifier(google_info(), calls=calls)
+    p = v.authenticate("ya29.opaque-token")
+    assert p.email == "jane@corp.example" and p.subject == "g-1"
+    assert v.authenticate("ya29.opaque-token").email == "jane@corp.example"
+    assert len(calls) == 1 and b"ya29.opaque-token" in calls[0].content  # POST body, not the URL
+
+
+@pytest.mark.parametrize("bad", [
+    {"aud": "another-app.apps.googleusercontent.com"},
+    {"exp": str(int(time.time()) - 10)},
+    {"email_verified": "false"},
+])
+def test_opaque_token_rejected(bad):
+    assert opaque_verifier(google_info(**bad)).authenticate("ya29.x") is None
+
+
+def test_opaque_token_rejected_on_introspection_error():
+    assert opaque_verifier({"error": "invalid_token"}, status=400).authenticate("ya29.x") is None
+
+
+def test_opaque_token_ignored_without_tokeninfo_url():
+    assert verifier(oidc_settings()).authenticate("ya29.opaque") is None
